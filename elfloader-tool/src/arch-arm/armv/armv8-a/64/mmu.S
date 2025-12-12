@@ -21,11 +21,6 @@
 .extern _boot_pgd_down
 .extern arm_vector_table
 
-BEGIN_FUNC(invalidate_dcache)
-    dcache  isw
-    ret
-END_FUNC(invalidate_dcache)
-
 BEGIN_FUNC(invalidate_icache)
     ic      iallu
     dsb     nsh
@@ -33,10 +28,63 @@ BEGIN_FUNC(invalidate_icache)
     ret
 END_FUNC(invalidate_icache)
 
+.extern _text
+.extern _end
+.extern _boot_pgd_down
+.extern _boot_pud_down
+.extern _boot_pgd_up
+.extern _boot_pud_up
+.extern _boot_pmd_up
+
 BEGIN_FUNC(flush_dcache)
-    dcache  cisw
+    stp     x29, x30, [sp, #-16]!
+    mov     x29, sp
+
+    adrp    x0, _text
+    adrp    x1, _end
+    add     x1, x1, #4096
+    bl      flush_dcache_range
+
+    adrp    x0, _boot_pgd_down
+    add     x1, x0, #4096
+    bl      flush_dcache_range
+
+    adrp    x0, _boot_pud_down
+    add     x1, x0, #4096
+    bl      flush_dcache_range
+
+    adrp    x0, _boot_pgd_up
+    add     x1, x0, #4096
+    bl      flush_dcache_range
+
+    adrp    x0, _boot_pud_up
+    add     x1, x0, #4096
+    bl      flush_dcache_range
+
+    adrp    x0, _boot_pmd_up
+    add     x1, x0, #4096
+    bl      flush_dcache_range
+
+    ldp     x29, x30, [sp], #16
     ret
 END_FUNC(flush_dcache)
+
+/* x0 = start address, x1 = end address */
+BEGIN_FUNC(flush_dcache_range)
+    mrs     x2, ctr_el0
+    ubfx    x2, x2, #16, #4
+    mov     x3, #4
+    lsl     x3, x3, x2
+
+1:  dc      civac, x0
+    add     x0, x0, x3
+    cmp     x0, x1
+    b.lo    1b
+
+    dsb     sy
+    isb
+    ret
+END_FUNC(flush_dcache_range)
 
 BEGIN_FUNC(arm_enable_mmu)
     /* We call nested functions, follow the ABI. */
