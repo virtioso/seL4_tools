@@ -135,6 +135,11 @@ void main(UNUSED void *arg)
 
     bootloader_dtb = efi_get_fdt();
 
+#if defined(CONFIG_PLAT_ORIN_AGX)
+    extern void orinagx_fan_init(void);
+    orinagx_fan_init();
+#endif
+
 #endif
 
     if (bootloader_dtb) {
