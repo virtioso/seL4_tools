@@ -6,6 +6,7 @@
 
 #include <binaries/efi/efi.h>
 #include <elfloader_common.h>
+#include <printf.h>
 
 void *__application_handle = NULL;             // current efi application handler
 efi_system_table_t *__efi_system_table = NULL; // current efi system table
@@ -33,6 +34,59 @@ void *efi_get_fdt(void)
     }
 
     return NULL;
+}
+
+/* EFI memory type names for debug output */
+static const char *efi_mem_type_name(uint32_t type)
+{
+    switch (type) {
+    case EFI_RESERVED_TYPE:             return "Reserved";
+    case EFI_LOADER_CODE:               return "LoaderCode";
+    case EFI_LOADER_DATA:               return "LoaderData";
+    case EFI_BOOT_SERVICES_CODE:        return "BootSvcCode";
+    case EFI_BOOT_SERVICES_DATA:        return "BootSvcData";
+    case EFI_RUNTIME_SERVICES_CODE:     return "RuntimeCode";
+    case EFI_RUNTIME_SERVICES_DATA:     return "RuntimeData";
+    case EFI_CONVENTIONAL_MEMORY:       return "Conventional";
+    case EFI_UNUSABLE_MEMORY:           return "Unusable";
+    case EFI_ACPI_RECLAIM_MEMORY:       return "ACPIReclaim";
+    case EFI_ACPI_MEMORY_NVS:           return "ACPI_NVS";
+    case EFI_MEMORY_MAPPED_IO:          return "MMIO";
+    case EFI_MEMORY_MAPPED_IO_PORT_SPACE: return "MMIO_Port";
+    case EFI_PAL_CODE:                  return "PAL";
+    case EFI_PERSISTENT_MEMORY:         return "Persistent";
+    default:                            return "Unknown";
+    }
+}
+
+/* Print full EFI memory map */
+static void efi_print_memory_map(efi_memory_desc_t *memory_map,
+                                  unsigned long map_size,
+                                  unsigned long desc_size)
+{
+    printf("\n=== EFI Memory Map ===\n");
+
+    unsigned long num_entries = map_size / desc_size;
+    uint8_t *ptr = (uint8_t *)memory_map;
+
+    printf("Total entries: %lu\n\n", num_entries);
+
+    for (unsigned long i = 0; i < num_entries; i++) {
+        efi_memory_desc_t *desc = (efi_memory_desc_t *)ptr;
+        uint64_t start = desc->phys_addr;
+        uint64_t end = start + (desc->num_pages * EFI_PAGE_SIZE);
+
+        printf("  [%02lu] 0x%09lx - 0x%09lx  %-12s  (%lu pages)\n",
+               i,
+               (unsigned long)start,
+               (unsigned long)end,
+               efi_mem_type_name(desc->type),
+               (unsigned long)desc->num_pages);
+
+        ptr += desc_size;
+    }
+
+    printf("\n=== End EFI Memory Map ===\n\n");
 }
 
 /* Before starting the kernel we should notify the UEFI firmware about it
@@ -76,6 +130,9 @@ again:
         bts->free_pool(memory_map);
         return status;
     }
+
+    /* Print memory map before exiting boot services */
+    efi_print_memory_map(memory_map, map_size, desc_size);
 
     status = bts->exit_boot_services(__application_handle, key);
     return status;
