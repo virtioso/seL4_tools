@@ -48,6 +48,7 @@ static struct elfloader_mem_region efi_mem_regions[AVAIL_P_REGS_MAX];
 #endif
 
 extern void finish_relocation(int offset, void *_dynamic, unsigned int total_offset);
+extern void flush_dcache_range(uintptr_t start, uintptr_t end);
 void continue_boot(int was_relocated);
 
 #ifdef CONFIG_ARCH_AARCH64

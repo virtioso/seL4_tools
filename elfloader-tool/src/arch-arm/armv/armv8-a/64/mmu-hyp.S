@@ -17,7 +17,6 @@
 .text
 
 .extern flush_dcache
-.extern invalidate_dcache
 .extern invalidate_icache
 
 BEGIN_FUNC(disable_caches_hyp)
