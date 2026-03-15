@@ -36,6 +36,7 @@ void const *dtb;
 size_t dtb_size;
 
 extern void finish_relocation(int offset, void *_dynamic, unsigned int total_offset);
+extern void flush_dcache_range(uintptr_t start, uintptr_t end);
 void continue_boot(int was_relocated);
 
 /*
@@ -191,6 +192,12 @@ void continue_boot(int was_relocated)
         leave_hyp();
     }
 #endif
+
+#ifdef CONFIG_ARCH_AARCH64
+    flush_dcache_range(kernel_info.phys_region_start, kernel_info.phys_region_end);
+    flush_dcache_range(user_info.phys_region_start, user_info.phys_region_end);
+#endif
+
     /* Setup MMU. */
     if (is_hyp_mode()) {
 #ifdef CONFIG_ARCH_AARCH64

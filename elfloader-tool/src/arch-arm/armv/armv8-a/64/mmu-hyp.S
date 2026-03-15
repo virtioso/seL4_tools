@@ -17,7 +17,6 @@
 .text
 
 .extern flush_dcache
-.extern invalidate_dcache
 .extern invalidate_icache
 .extern _boot_pgd_down
 
