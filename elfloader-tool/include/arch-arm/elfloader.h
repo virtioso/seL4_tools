@@ -22,7 +22,7 @@ typedef void (*init_arm_kernel_t)(word_t ui_p_reg_start,
 
 /* Enable the mmu. */
 extern void arm_enable_mmu(void);
-extern void arm_enable_hyp_mmu(void);
+extern void arm_enable_hyp_mmu(void *pgd);
 
 
 /* Setup boot VSpace. */

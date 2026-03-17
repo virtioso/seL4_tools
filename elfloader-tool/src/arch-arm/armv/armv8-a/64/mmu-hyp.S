@@ -19,7 +19,6 @@
 .extern flush_dcache
 .extern invalidate_dcache
 .extern invalidate_icache
-.extern _boot_pgd_down
 
 BEGIN_FUNC(disable_caches_hyp)
     stp     x29, x30, [sp, #-16]!
@@ -88,9 +87,12 @@ BEGIN_FUNC(leave_hyp)
     eret
 END_FUNC(leave_hyp)
 
+/* x0 = page global directory to install in TTBR0_EL2 */
 BEGIN_FUNC(arm_enable_hyp_mmu)
-    stp     x29, x30, [sp, #-16]!
+    stp     x29, x30, [sp, #-32]!
     mov     x29, sp
+    str     x19, [sp, #16]
+    mov     x19, x0
 
     bl      flush_dcache
 
@@ -117,8 +119,7 @@ BEGIN_FUNC(arm_enable_hyp_mmu)
     msr     tcr_el2, x8
     isb
 
-    adrp    x8, _boot_pgd_down
-    msr     ttbr0_el2, x8
+    msr     ttbr0_el2, x19
     isb
 
     tlbi    alle2is
@@ -132,6 +133,8 @@ BEGIN_FUNC(arm_enable_hyp_mmu)
     tlbi    alle2is
     dsb     ish
     isb
-    ldp     x29, x30, [sp], #16
+
+    ldr     x19, [sp, #16]
+    ldp     x29, x30, [sp], #32
     ret
 END_FUNC(arm_enable_hyp_mmu)

@@ -19,6 +19,10 @@
 #include <binaries/efi/efi.h>
 #include <elfloader.h>
 
+#ifdef CONFIG_ARCH_AARCH64
+#include <mode/structures.h>
+#endif
+
 /* 0xd00dfeed in big endian */
 #define DTB_MAGIC (0xedfe0dd0)
 
@@ -220,7 +224,7 @@ void continue_boot(int was_relocated)
 
     if (is_hyp_mode()) {
         printf("Enabling hypervisor MMU and jumping to entry point...\n\n");
-        arm_enable_hyp_mmu();
+        arm_enable_hyp_mmu(_boot_pgd_down);
     } else {
         printf("Enabling MMU and jumping to entry point...\n\n");
         arm_enable_mmu();

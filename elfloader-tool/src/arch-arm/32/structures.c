@@ -25,7 +25,3 @@ void *get_boot_pd(void)
     return _boot_pd;
 }
 
-void *get_lpae_boot_pgd(void)
-{
-    return _lpae_boot_pgd;
-}

@@ -15,6 +15,7 @@
 #include <abort.h>
 
 #include <elfloader.h>
+#include <mode/structures.h>
 #include <armv/smp.h>
 #include <armv/machine.h>
 
@@ -53,7 +54,11 @@ void non_boot_main(void)
 #endif
     /* Enable the MMU, and enter the kernel. */
     if (is_hyp_mode()) {
-        arm_enable_hyp_mmu();
+#if defined(CONFIG_ARCH_AARCH64)
+        arm_enable_hyp_mmu(_boot_pgd_down);
+#else
+        arm_enable_hyp_mmu(_lpae_boot_pgd);
+#endif
     } else {
         arm_enable_mmu();
     }
