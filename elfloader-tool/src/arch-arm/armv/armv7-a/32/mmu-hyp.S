@@ -12,7 +12,6 @@
 
 .text
 
-.extern _lpae_boot_pgd
 .extern flush_dcache
 .extern invalidate_dcache
 .extern invalidate_icache
@@ -32,8 +31,10 @@ END_FUNC(leave_hyp)
  * It is expected that the code of this function will be mapped 1:1
  * virtual/physical in the pagetable we activate.
  */
+/* r0 = page global directory to install in HTTBR */
 BEGIN_FUNC(arm_enable_hyp_mmu)
-    stmfd   sp!, {lr}
+    stmfd   sp!, {r4, lr}
+    mov     r4, r0
 
     /* Clean D-Cache if enabled */
     mrc     HSCTLR(r1)
@@ -61,10 +62,9 @@ BEGIN_FUNC(arm_enable_hyp_mmu)
     mcr     HMAIR1(r1)
 
     /* Set up the page table */
-    bl      get_lpae_boot_pgd
     mov     r1, #0
     mov     r2, #(1<<31)
-    mcrr    HTTBR(r1,r0)
+    mcrr    HTTBR(r1,r4)
     mcr     HTCR(r2)
 
     /* Invalidate TLB */
@@ -84,5 +84,5 @@ BEGIN_FUNC(arm_enable_hyp_mmu)
     mcr     p15, 0, r0, c1, c0, 1
 #endif /* CONFIG_MAX_NUM_NODES > 1 */
 
-    ldmfd   sp!, {pc}
+    ldmfd   sp!, {r4, pc}
 END_FUNC(arm_enable_hyp_mmu)
