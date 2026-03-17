@@ -17,6 +17,8 @@
 #include <cpuid.h>
 
 #include <binaries/efi/efi.h>
+#include <binaries/elf/elf.h>
+#include <cpio/cpio.h>
 #include <elfloader.h>
 
 #ifdef CONFIG_ARCH_AARCH64
@@ -102,6 +104,88 @@ void relocate_below_kernel(void)
 #endif
 }
 
+#if defined(CONFIG_ARCH_AARCH64)
+/* L1 block descriptor attributes (must match MAIR in enable_elfloader_map_hyp) */
+#define BLOCK_NORMAL  (0x1 | (4 << 2) | (3 << 8) | (1 << 10)) /* MT_NORMAL, ISH, AF */
+#define BLOCK_DEVICE  (0x1 | (1 << 10) | (1ULL << 53) | (1ULL << 54)) /* MT_DEVICE_nGnRnE, AF, PXN, XN */
+
+#define TABLE_DESC    0x3
+#define GB_SHIFT      30
+#define GB_SIZE       (1ULL << GB_SHIFT)
+#define PUD_ENTRIES   512
+
+static void map_1gb_range(uint64_t start, uint64_t end, uint64_t attrs)
+{
+    uint64_t block_pa = start & ~(GB_SIZE - 1);
+    uint64_t block_end = (end + GB_SIZE - 1) & ~(GB_SIZE - 1);
+
+    for (; block_pa < block_end; block_pa += GB_SIZE) {
+        unsigned int idx = (unsigned int)(block_pa >> GB_SHIFT);
+        if (idx < PUD_ENTRIES) {
+            if (attrs == BLOCK_NORMAL || _boot_pud_elfloader[idx] == 0) {
+                _boot_pud_elfloader[idx] = block_pa | attrs;
+            }
+        }
+    }
+}
+
+static void build_elfloader_map(void const *dtb_addr)
+{
+    for (int i = 0; i < BIT(PGD_BITS); i++)
+        _boot_pgd_up[i] = 0;
+    for (int i = 0; i < BIT(PUD_BITS); i++)
+        _boot_pud_elfloader[i] = 0;
+
+    _boot_pgd_up[0] = (uint64_t)(uintptr_t)_boot_pud_elfloader | TABLE_DESC;
+
+    map_1gb_range((uint64_t)(uintptr_t)_text,
+                  (uint64_t)(uintptr_t)_end,
+                  BLOCK_NORMAL);
+
+    /* Map physical destinations for all ELF images in the CPIO archive.
+     * Kernel uses physical addresses; user images are placed after it. */
+    void const *cpio = _archive_start;
+    size_t cpio_len = _archive_start_end - _archive_start;
+    uint64_t next_phys = 0;
+    const char *name;
+
+    for (unsigned int idx = 0; ; idx++) {
+        void const *entry = cpio_get_entry(cpio, cpio_len, idx, &name, NULL);
+        if (!entry || !name)
+            break;
+        if (elf_checkFile(entry) != 0)
+            continue;
+
+        uint64_t lo, hi;
+        int is_kernel = (strcmp(name, "kernel.elf") == 0);
+
+        if (elf_getMemoryBounds(entry, is_kernel, &lo, &hi) != 1)
+            continue;
+
+        if (is_kernel) {
+            map_1gb_range(lo, hi, BLOCK_NORMAL);
+            next_phys = hi;
+        } else {
+            uint64_t size = hi - lo;
+            map_1gb_range(next_phys, next_phys + size, BLOCK_NORMAL);
+            next_phys += size;
+        }
+    }
+
+    if (dtb_addr) {
+        map_1gb_range((uint64_t)(uintptr_t)dtb_addr,
+                      (uint64_t)(uintptr_t)dtb_addr + 1,
+                      BLOCK_NORMAL);
+    }
+
+    volatile void *uart_mmio = uart_get_mmio();
+    if (uart_mmio) {
+        uint64_t uart_pa = (uint64_t)(uintptr_t)uart_mmio;
+        map_1gb_range(uart_pa, uart_pa + 1, BLOCK_DEVICE);
+    }
+}
+#endif /* CONFIG_ARCH_AARCH64 */
+
 /*
  * Entry point.
  *
@@ -147,6 +231,8 @@ void main(UNUSED void *arg)
 #if defined(CONFIG_ARCH_AARCH64)
     if (is_hyp_mode()) {
         quiesce_hyp_mmu();
+        build_elfloader_map(bootloader_dtb);
+        arm_enable_hyp_mmu(_boot_pgd_up);
     }
 #endif
 
