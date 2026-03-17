@@ -30,6 +30,24 @@ BEGIN_FUNC(disable_caches_hyp)
     ret
 END_FUNC(disable_caches_hyp)
 
+/* Flush dcache, disable EL2 MMU+caches, TLBI, invalidate icache. */
+BEGIN_FUNC(quiesce_hyp_mmu)
+    stp     x29, x30, [sp, #-16]!
+    mov     x29, sp
+
+    bl      flush_dcache
+    disable_mmu sctlr_el2, x9
+
+    tlbi    alle2is
+    dsb     ish
+    isb
+
+    bl      invalidate_icache
+
+    ldp     x29, x30, [sp], #16
+    ret
+END_FUNC(quiesce_hyp_mmu)
+
 BEGIN_FUNC(leave_hyp)
     /* We call nested functions, follow the ABI. */
     stp     x29, x30, [sp, #-16]!

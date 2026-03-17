@@ -38,6 +38,10 @@ size_t dtb_size;
 extern void finish_relocation(int offset, void *_dynamic, unsigned int total_offset);
 void continue_boot(int was_relocated);
 
+#ifdef CONFIG_ARCH_AARCH64
+extern void quiesce_hyp_mmu(void);
+#endif
+
 /*
  * Make sure the ELF loader is below the kernel's first virtual address
  * so that when we enable the MMU we can keep executing.
@@ -134,6 +138,12 @@ void main(UNUSED void *arg)
 
     bootloader_dtb = efi_get_fdt();
 
+#endif
+
+#if defined(CONFIG_ARCH_AARCH64)
+    if (is_hyp_mode()) {
+        quiesce_hyp_mmu();
+    }
 #endif
 
     if (bootloader_dtb) {
