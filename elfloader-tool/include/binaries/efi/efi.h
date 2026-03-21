@@ -144,3 +144,7 @@ void efi_early_init(uintptr_t application_handle, uintptr_t efi_system_table);
 unsigned long efi_exit_boot_services(void);
 void *efi_get_fdt(void);
 
+struct elfloader_mem_region;
+unsigned int efi_get_mem_regions(struct elfloader_mem_region *out,
+                                unsigned int max_regions);
+

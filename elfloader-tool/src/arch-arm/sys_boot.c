@@ -20,6 +20,7 @@
 #include <binaries/elf/elf.h>
 #include <cpio/cpio.h>
 #include <elfloader.h>
+#include <elfloader_memmap.h>
 
 #ifdef CONFIG_ARCH_AARCH64
 #include <mode/structures.h>
@@ -40,6 +41,17 @@ struct image_info kernel_info;
 struct image_info user_info;
 void const *dtb;
 size_t dtb_size;
+
+#ifdef CONFIG_IMAGE_EFI
+/*
+ * Bootinfo block: header + memory regions.
+ * The kernel receives a pointer to this block as dtb_addr and finds
+ * the real DTB at header.dtb_paddr (absolute address, no copy needed).
+ */
+static ALIGN(BIT(PAGE_BITS))
+char bootinfo_block[sizeof(struct elfloader_bootinfo_header) +
+                    sizeof(struct elfloader_mem_region) * ELFLOADER_MAX_MEM_REGIONS];
+#endif
 
 extern void finish_relocation(int offset, void *_dynamic, unsigned int total_offset);
 extern void flush_dcache_range(uintptr_t start, uintptr_t end);
@@ -293,9 +305,55 @@ void continue_boot(int was_relocated)
     }
 #endif
 
+    /*
+     * Build bootinfo block with EFI memory map BEFORE dcache flush and
+     * MMU switch — we need UART for debug prints, and the block must be
+     * flushed to PoC before the kernel reads it.
+     */
+    word_t pass_dtb_addr = (word_t)dtb;
+    size_t pass_dtb_size = dtb_size;
+
+#ifdef CONFIG_IMAGE_EFI
+    {
+        struct elfloader_bootinfo_header *hdr =
+            (struct elfloader_bootinfo_header *)bootinfo_block;
+        struct elfloader_mem_region *regions =
+            (struct elfloader_mem_region *)(hdr + 1);
+
+        unsigned int num_regions = efi_get_mem_regions(
+            regions, ELFLOADER_MAX_MEM_REGIONS);
+
+        if (num_regions > 0) {
+            hdr->magic = ELFLOADER_BOOTINFO_MAGIC;
+            hdr->num_mem_regions = num_regions;
+            hdr->dtb_paddr = (uint64_t)(word_t)dtb;
+            hdr->dtb_size = dtb_size;
+            hdr->reserved = 0;
+
+            printf("Bootinfo: %u memory regions, DTB at %p (%u bytes)\n",
+                   num_regions, (uintptr_t)dtb, (unsigned)dtb_size);
+            for (unsigned int i = 0; i < num_regions; i++) {
+                printf("  mem[%u]: 0x%lx - 0x%lx\n", i,
+                       (unsigned long)regions[i].start,
+                       (unsigned long)(regions[i].end - 1));
+            }
+
+            pass_dtb_addr = (word_t)bootinfo_block;
+            pass_dtb_size = sizeof(*hdr) +
+                            num_regions * sizeof(struct elfloader_mem_region);
+        } else {
+            printf("WARNING: No EFI memory regions found, passing raw DTB\n");
+        }
+    }
+#endif
+
 #ifdef CONFIG_ARCH_AARCH64
     flush_dcache_range(kernel_info.phys_region_start, kernel_info.phys_region_end);
     flush_dcache_range(user_info.phys_region_start, user_info.phys_region_end);
+#ifdef CONFIG_IMAGE_EFI
+    flush_dcache_range((uintptr_t)bootinfo_block,
+                       (uintptr_t)bootinfo_block + sizeof(bootinfo_block));
+#endif
 #endif
 
     /* Setup MMU. */
@@ -322,13 +380,14 @@ void continue_boot(int was_relocated)
         printf("Enabling MMU and jumping to entry point...\n\n");
         arm_enable_mmu();
     }
+
     /* Enter kernel. The UART is no longer accessible here. */
     ((init_arm_kernel_t)kernel_info.virt_entry)(user_info.phys_region_start,
                                                 user_info.phys_region_end,
                                                 user_info.phys_virt_offset,
                                                 user_info.virt_entry,
-                                                (word_t)dtb,
-                                                dtb_size);
+                                                pass_dtb_addr,
+                                                pass_dtb_size);
 
     /* We should never get here. */
     abort();
