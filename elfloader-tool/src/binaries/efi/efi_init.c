@@ -130,8 +130,17 @@ unsigned int efi_get_mem_regions(struct elfloader_mem_region *out,
             continue;
         }
 
+        /* Align to 2 MiB: round start up, end down. This ensures every
+         * reported region can be mapped with large pages without including
+         * any firmware carveout bytes. */
         uint64_t start = md->phys_addr;
         uint64_t end = start + md->num_pages * EFI_PAGE_SIZE;
+        start = (start + 0x1FFFFF) & ~0x1FFFFFULL;
+        end = end & ~0x1FFFFFULL;
+
+        if (start >= end) {
+            continue;  /* too small after alignment */
+        }
 
         out[count].start = start;
         out[count].end = end;
