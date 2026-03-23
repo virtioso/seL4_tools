@@ -20,6 +20,7 @@
 #include <binaries/elf/elf.h>
 #include <cpio/cpio.h>
 #include <elfloader.h>
+#include <elfloader_memmap.h>
 
 #ifdef CONFIG_ARCH_AARCH64
 #include <mode/structures.h>
@@ -40,6 +41,11 @@ struct image_info kernel_info;
 struct image_info user_info;
 void const *dtb;
 size_t dtb_size;
+void const *kernel_elf_blob;
+
+#ifdef CONFIG_IMAGE_EFI
+static struct elfloader_mem_region efi_mem_regions[AVAIL_P_REGS_MAX];
+#endif
 
 extern void finish_relocation(int offset, void *_dynamic, unsigned int total_offset);
 void continue_boot(int was_relocated);
@@ -291,6 +297,69 @@ void continue_boot(int was_relocated)
         leave_hyp();
     }
 #endif
+
+    /*
+     * Write EFI memory regions into the kernel's .boot.memmap section.
+     * Find the section by name in the kernel ELF, compute its physical
+     * address in the loaded image, and overwrite the default regions.
+     */
+#ifdef CONFIG_IMAGE_EFI
+    if (kernel_elf_blob) {
+        unsigned int num_regions = efi_get_mem_regions(
+            efi_mem_regions, AVAIL_P_REGS_MAX);
+
+        if (num_regions > 0) {
+            /* Find the .boot.memmap section in the kernel ELF */
+            int sec_idx = -1;
+            unsigned int num_secs = elf_getNumSections(kernel_elf_blob);
+            for (unsigned int s = 0; s < num_secs; s++) {
+                char const *name = elf_getSectionName(kernel_elf_blob, s);
+                if (name && strcmp(name, BOOT_MEMMAP_SECTION) == 0) {
+                    sec_idx = s;
+                    break;
+                }
+            }
+            if (sec_idx >= 0) {
+                uint64_t section_vaddr = elf_getSectionAddr(kernel_elf_blob, sec_idx);
+                paddr_t section_paddr = kernel_info.phys_region_start +
+                    (section_vaddr - kernel_info.virt_region_start);
+
+                /* Each entry is {uint64_t start, uint64_t end} — same layout
+                 * as kernel's p_region_t on aarch64. */
+                struct elfloader_mem_region *dest =
+                    (struct elfloader_mem_region *)section_paddr;
+
+                for (unsigned int i = 0; i < num_regions; i++) {
+                    dest[i] = efi_mem_regions[i];
+                }
+                /* Zero out remaining entries */
+                for (unsigned int i = num_regions; i < AVAIL_P_REGS_MAX; i++) {
+                    dest[i].start = 0;
+                    dest[i].end = 0;
+                }
+
+                printf("EFI memmap: %u regions written to kernel " BOOT_MEMMAP_SECTION
+                       " at phys 0x%lx\n", num_regions, (unsigned long)section_paddr);
+                for (unsigned int i = 0; i < num_regions; i++) {
+                    printf("  mem[%u]: 0x%lx - 0x%lx\n", i,
+                           (unsigned long)efi_mem_regions[i].start,
+                           (unsigned long)(efi_mem_regions[i].end - 1));
+                }
+            } else {
+                printf("WARNING: kernel has no " BOOT_MEMMAP_SECTION
+                       " section, using DTS default\n");
+            }
+        } else {
+            printf("WARNING: No EFI memory regions found, using DTS default\n");
+        }
+    }
+#endif
+
+#ifdef CONFIG_ARCH_AARCH64
+    flush_dcache_range(kernel_info.phys_region_start, kernel_info.phys_region_end);
+    flush_dcache_range(user_info.phys_region_start, user_info.phys_region_end);
+#endif
+
     /* Setup MMU. */
     if (is_hyp_mode()) {
 #ifdef CONFIG_ARCH_AARCH64
@@ -315,6 +384,7 @@ void continue_boot(int was_relocated)
         printf("Enabling MMU and jumping to entry point...\n\n");
         arm_enable_mmu();
     }
+
     /* Enter kernel. The UART is no longer accessible here. */
     ((init_arm_kernel_t)kernel_info.virt_entry)(user_info.phys_region_start,
                                                 user_info.phys_region_end,

@@ -402,21 +402,22 @@ int load_images(
 
     /* Load kernel. */
     unsigned long cpio_file_size = 0;
-    void const *kernel_elf_blob = cpio_get_file(cpio,
+    void const *elf_blob = cpio_get_file(cpio,
                                                 cpio_len,
                                                 "kernel.elf",
                                                 &cpio_file_size);
-    if (kernel_elf_blob == NULL) {
+    if (elf_blob == NULL) {
         printf("ERROR: No kernel image present in archive\n");
         return -1;
     }
+    kernel_elf_blob = elf_blob;
 
     /* Ensure we can safely cast the CPIO API type to our preferred type. */
     _Static_assert(sizeof(cpio_file_size) <= sizeof(size_t),
                    "integer model mismatch");
-    size_t kernel_elf_blob_size = (size_t)cpio_file_size;
+    size_t elf_blob_size = (size_t)cpio_file_size;
 
-    ret = elf_checkFile(kernel_elf_blob);
+    ret = elf_checkFile(elf_blob);
     if (ret != 0) {
         printf("ERROR: Kernel image not a valid ELF file\n");
         return -1;
@@ -425,7 +426,7 @@ int load_images(
     /* Get physical memory bounds. Unlike most other functions, this returns 1
      * on success and anything else is an error.
      */
-    ret = elf_getMemoryBounds(kernel_elf_blob, 1, &kernel_phys_start,
+    ret = elf_getMemoryBounds(elf_blob, 1, &kernel_phys_start,
                               &kernel_phys_end);
     if (1 != ret) {
         printf("ERROR: Could not get kernel memory bounds\n");
@@ -501,8 +502,8 @@ int load_images(
     ret = load_elf(cpio,
                    cpio_len,
                    "kernel",
-                   kernel_elf_blob,
-                   kernel_elf_blob_size,
+                   elf_blob,
+                   elf_blob_size,
                    "kernel.bin", // hash file
                    (paddr_t)kernel_phys_start,
                    0, // don't keep ELF headers

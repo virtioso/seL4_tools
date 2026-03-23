@@ -77,6 +77,7 @@ struct image_info {
 extern struct image_info kernel_info;
 extern struct image_info user_info;
 extern void const *dtb;
+extern void const *kernel_elf_blob;
 
 /* Symbols defined in linker scripts. */
 extern char _text[];
