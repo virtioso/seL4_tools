@@ -51,6 +51,17 @@ extern void finish_relocation(int offset, void *_dynamic, unsigned int total_off
 extern void flush_dcache_range(uintptr_t start, uintptr_t end);
 void continue_boot(int was_relocated);
 
+#ifdef CONFIG_ARCH_AARCH64
+#define BLOCK_NORMAL  (0x1 | (4 << 2) | (3 << 8) | (1 << 10)) /* MT_NORMAL, ISH, AF */
+#define BLOCK_DEVICE  (0x1 | (1 << 10) | (1ULL << 53) | (1ULL << 54)) /* MT_DEVICE_nGnRnE, AF, PXN, XN */
+
+#define TABLE_DESC    0x3
+#define GB_SHIFT      30
+#define GB_SIZE       (1ULL << GB_SHIFT)
+#define PUD_ENTRIES   512
+#define KEEP_HEADERS_SIZE BIT(PAGE_BITS)
+#endif
+
 #if defined(CONFIG_ARCH_AARCH64) && defined(CONFIG_IMAGE_EFI)
 extern void quiesce_hyp_mmu(void);
 #endif
@@ -111,17 +122,7 @@ void relocate_below_kernel(void)
 #endif
 }
 
-#if defined(CONFIG_ARCH_AARCH64) && defined(CONFIG_IMAGE_EFI)
-/* L1 block descriptor attributes (must match MAIR in enable_elfloader_map_hyp) */
-#define BLOCK_NORMAL  (0x1 | (4 << 2) | (3 << 8) | (1 << 10)) /* MT_NORMAL, ISH, AF */
-#define BLOCK_DEVICE  (0x1 | (1 << 10) | (1ULL << 53) | (1ULL << 54)) /* MT_DEVICE_nGnRnE, AF, PXN, XN */
-
-#define TABLE_DESC    0x3
-#define GB_SHIFT      30
-#define GB_SIZE       (1ULL << GB_SHIFT)
-#define PUD_ENTRIES   512
-#define KEEP_HEADERS_SIZE BIT(PAGE_BITS)
-
+#ifdef CONFIG_ARCH_AARCH64
 static void clear_hyp_boot_tables(void)
 {
     for (int i = 0; i < BIT(PGD_BITS); i++) {
@@ -297,7 +298,7 @@ static void init_prebuilt_hyp_boot_vspace(struct image_info *kernel_boot_info, v
         map_1gb_range(_boot_pud_down, uart_pa, uart_pa + 1, BLOCK_DEVICE);
     }
 }
-#endif /* CONFIG_ARCH_AARCH64 && CONFIG_IMAGE_EFI */
+#endif /* CONFIG_ARCH_AARCH64 */
 
 /*
  * Entry point.
@@ -341,14 +342,16 @@ void main(UNUSED void *arg)
 
 #endif
 
-#if defined(CONFIG_ARCH_AARCH64) && defined(CONFIG_IMAGE_EFI)
+#ifdef CONFIG_ARCH_AARCH64
     if (is_hyp_mode()) {
         struct image_info kernel_boot_info;
 
         if (build_kernel_boot_info(&kernel_boot_info) != 0) {
             abort();
         }
+#ifdef CONFIG_IMAGE_EFI
         quiesce_hyp_mmu();
+#endif
         init_prebuilt_hyp_boot_vspace(&kernel_boot_info, bootloader_dtb);
         arm_enable_hyp_mmu(_boot_pgd_down);
     }
@@ -477,11 +480,7 @@ void continue_boot(int was_relocated)
 
     /* Setup MMU. */
     if (is_hyp_mode()) {
-#if defined(CONFIG_ARCH_AARCH64) && !defined(CONFIG_IMAGE_EFI)
-        extern void disable_caches_hyp();
-        disable_caches_hyp();
-        init_hyp_boot_vspace(&kernel_info);
-#elif !defined(CONFIG_ARCH_AARCH64)
+#ifndef CONFIG_ARCH_AARCH64
         init_hyp_boot_vspace(&kernel_info);
 #endif
     } else {
