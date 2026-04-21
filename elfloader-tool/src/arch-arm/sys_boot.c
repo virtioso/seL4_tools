@@ -21,6 +21,7 @@
 #include <cpio/cpio.h>
 #include <elfloader.h>
 #include <elfloader_memmap.h>
+#include <fdt.h>
 
 #ifdef CONFIG_ARCH_AARCH64
 #include <mode/structures.h>
